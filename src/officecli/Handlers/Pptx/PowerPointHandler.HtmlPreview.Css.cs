@@ -544,7 +544,8 @@ public partial class PowerPointHandler
         Dictionary<string, string> themeColors, out string? firstStopColor)
     {
         firstStopColor = null;
-        var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>().ToList();
+        var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>()
+            .OrderBy(gs => gs.Position?.Value ?? 0).ToList();
         if (stops == null || stops.Count < 2) return "";
 
         // Map the OOXML linear gradient angle to SVG x1/y1/x2/y2 in objectBoundingBox
@@ -611,7 +612,11 @@ public partial class PowerPointHandler
 
     private static string GradientToCss(Drawing.GradientFill gradFill, Dictionary<string, string> themeColors)
     {
-        var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>().ToList();
+        // OOXML stores positions on each stop; document order need not be offset
+        // order. CSS clamps descending stops to the preceding position. OrderBy
+        // is stable, preserving deliberate hard edges between equal-position stops.
+        var stops = gradFill.GradientStopList?.Elements<Drawing.GradientStop>()
+            .OrderBy(gs => gs.Position?.Value ?? 0).ToList();
         if (stops == null || stops.Count < 2) return "transparent";
 
         var cssStops = new List<string>();
