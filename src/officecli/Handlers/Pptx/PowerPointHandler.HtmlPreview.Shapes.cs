@@ -1148,15 +1148,21 @@ public partial class PowerPointHandler
     /// (Level1ParagraphProperties etc.) in the placeholder chain matching <paramref name="match"/>.
     /// </summary>
     private static OpenXmlElement? ResolvePlaceholderLevelPpr(Shape shape, OpenXmlPart part,
-        int level, Func<OpenXmlElement, bool> match)
+        int level, Func<OpenXmlElement, bool> match, bool includeDefault = false)
     {
+        OpenXmlElement? MatchingProperties(OpenXmlCompositeElement? list)
+        {
+            if (GetLevelPpr(list, level) is { } specific && match(specific)) return specific;
+            var defaults = includeDefault ? list?.GetFirstChild<Drawing.DefaultParagraphProperties>() : null;
+            return defaults != null && match(defaults) ? defaults : null;
+        }
         // 1. Shape's own list style. This applies to EVERY shape, placeholder or
         // not — a plain text box carries its alignment/defRPr in its own
         // <a:lstStyle>/<a:lvlNpPr> just as often (a layout's slide-number box
         // with lvl1pPr algn="r" and no paragraph pPr rendered left-aligned
         // because the placeholder gate below short-circuited this step).
         var lstStyle = shape.TextBody?.GetFirstChild<Drawing.ListStyle>();
-        if (GetLevelPpr(lstStyle, level) is { } own && match(own)) return own;
+        if (MatchingProperties(lstStyle) is { } own) return own;
 
         var ph = shape.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties
             ?.GetFirstChild<PlaceholderShape>();
@@ -1180,7 +1186,7 @@ public partial class PowerPointHandler
                     if (cPh == null) continue;
                     if (!SlideComposition.PlaceholderMatches(ph, cPh)) continue;
                     var cLstStyle = candidate.TextBody?.GetFirstChild<Drawing.ListStyle>();
-                    if (GetLevelPpr(cLstStyle, level) is { } cppr && match(cppr)) return cppr;
+                    if (MatchingProperties(cLstStyle) is { } cppr) return cppr;
                 }
             }
 
@@ -1191,7 +1197,7 @@ public partial class PowerPointHandler
                     : (isSubTitle || phType == PlaceholderValues.Body || phType == PlaceholderValues.Object)
                         ? masterTxStyles.BodyStyle
                         : masterTxStyles.OtherStyle;
-                if (GetLevelPpr(styleList, level) is { } sppr && match(sppr)) return sppr;
+                if (MatchingProperties(styleList) is { } sppr) return sppr;
             }
         }
         return null;

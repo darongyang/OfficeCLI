@@ -123,6 +123,28 @@ public partial class PowerPointHandler
             var paraStyles = new List<string>();
 
             var pProps = para.ParagraphProperties;
+            // Office defaults latinLnBrk to false: Latin words may wrap at
+            // spaces, but must not be split just to fit the text frame.
+            bool? latinLineBreak = pProps?.LatinLineBreak?.Value;
+            if (latinLineBreak == null)
+            {
+                int level = pProps?.Level?.Value ?? 0;
+                var listPpr = GetLevelPpr(textBody.GetFirstChild<Drawing.ListStyle>(), level)
+                    as Drawing.TextParagraphPropertiesType;
+                latinLineBreak = listPpr?.LatinLineBreak?.Value;
+                latinLineBreak ??= textBody.GetFirstChild<Drawing.ListStyle>()?
+                    .GetFirstChild<Drawing.DefaultParagraphProperties>()?.LatinLineBreak?.Value;
+                if (latinLineBreak == null && placeholderShape != null && placeholderPart != null)
+                {
+                    var inherited = ResolvePlaceholderLevelPpr(placeholderShape, placeholderPart, level,
+                        p => (p as Drawing.TextParagraphPropertiesType)?.LatinLineBreak?.HasValue == true,
+                        includeDefault: true)
+                        as Drawing.TextParagraphPropertiesType;
+                    latinLineBreak = inherited?.LatinLineBreak?.Value;
+                }
+                latinLineBreak ??= ResolveGlobalLatinLineBreak(placeholderShape, placeholderPart, level);
+            }
+            paraStyles.Add($"overflow-wrap:{(latinLineBreak == true ? "break-word" : "normal")}");
             // R26-4: alignment — explicit slide pPr@algn wins; otherwise inherit
             // the master/layout lvlNpPr@algn via the placeholder cascade.
             var algnInner = pProps?.Alignment?.HasValue == true
@@ -678,6 +700,31 @@ public partial class PowerPointHandler
     // position), falling back to the cached <a:t> when unknown. All other field
     // types (datetime*, etc.) emit their cached <a:t> verbatim. Mirrors
     // GetShapeText's field handling for the non-render extractor.
+    private static bool? ResolveGlobalLatinLineBreak(Shape? shape, OpenXmlPart? part, int level)
+    {
+        bool? Read(OpenXmlCompositeElement? list) =>
+            (GetLevelPpr(list, level) as Drawing.TextParagraphPropertiesType)?.LatinLineBreak?.Value
+            ?? list?.GetFirstChild<Drawing.DefaultParagraphProperties>()?.LatinLineBreak?.Value;
+
+        var master = part switch
+        {
+            SlidePart slide => slide.SlideLayoutPart?.SlideMasterPart,
+            SlideLayoutPart layout => layout.SlideMasterPart,
+            SlideMasterPart ownMaster => ownMaster,
+            _ => null
+        };
+        var ph = shape?.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties?
+            .GetFirstChild<PlaceholderShape>();
+        var type = ph?.Type?.Value;
+        var textStyles = master?.SlideMaster?.TextStyles;
+        OpenXmlCompositeElement? masterStyle = ph == null ? textStyles?.OtherStyle
+            : type == PlaceholderValues.Title || type == PlaceholderValues.CenteredTitle ? textStyles?.TitleStyle
+            : type == null || type == PlaceholderValues.Body || type == PlaceholderValues.Object
+                || type == PlaceholderValues.SubTitle ? textStyles?.BodyStyle : textStyles?.OtherStyle;
+        return Read(masterStyle)
+            ?? Read((part?.OpenXmlPackage as PresentationDocument)?.PresentationPart?.Presentation?.DefaultTextStyle);
+    }
+
     private static string ResolveFieldText(Drawing.Field fld, int? slideNumber)
     {
         var cached = string.Concat(fld.Elements<Drawing.Text>().Select(t => t.Text));
