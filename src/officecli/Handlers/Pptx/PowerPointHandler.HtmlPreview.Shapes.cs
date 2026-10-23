@@ -268,7 +268,26 @@ public partial class PowerPointHandler
         var presetGeom = shape.ShapeProperties?.GetFirstChild<Drawing.PresetGeometry>();
         if (presetGeom?.Preset?.HasValue == true)
         {
-            var geomCss = PresetGeometryToCss(presetGeom.Preset!.InnerText!, cx, cy, presetGeom);
+            var preset = presetGeom.Preset.InnerText!;
+            var bracePath = preset is "leftBrace" or "rightBrace"
+                ? PresetBraceToSvgPath(preset, presetGeom, cx, cy) : "";
+            if (!string.IsNullOrEmpty(bracePath))
+            {
+                // Reuse the SVG geometry pipeline so border/fill backgrounds do
+                // not turn an open brace into a closed rectangular frame.
+                custGeomSvgRouted = true;
+                custGeomSvgStrokeD = bracePath;
+                custGeomSvgFillD = bracePath + " Z";
+                custGeomSvgW = cx;
+                custGeomSvgH = cy;
+                if (outline == null)
+                {
+                    var stroke = ResolveStyleLineRefStroke(shape.ShapeStyle, part, themeColors);
+                    if (stroke != null)
+                        parsedOutline = (stroke.Value.widthPt, "solid", stroke.Value.color, "flat", "sng", "round");
+                }
+            }
+            var geomCss = custGeomSvgRouted ? "" : PresetGeometryToCss(preset, cx, cy, presetGeom);
             if (!string.IsNullOrEmpty(geomCss))
             {
                 if (geomCss.StartsWith("clip-path:"))
@@ -587,13 +606,28 @@ public partial class PowerPointHandler
                 sb.Append($"<defs>{gradFillDef}</defs>");
             if (drawFill)
                 sb.Append($"<path d=\"{custGeomSvgFillD}\" fill=\"{fillAttr}\" fill-rule=\"evenodd\"/>");
+            string? braceGradientStroke = null;
+            if (outlineGradFill != null && presetGeom?.Preset?.InnerText is "leftBrace" or "rightBrace")
+            {
+                // The brace must retain its gradient stroke when moving from
+                // border-image to an open SVG path.
+                var gid = $"brg{_markerCounter++}";
+                var definition = BuildSvgLinearGradient(outlineGradFill, gid, themeColors, out var firstStop);
+                if (!string.IsNullOrEmpty(definition))
+                {
+                    sb.Append($"<defs>{definition}</defs>");
+                    braceGradientStroke = $"url(#{gid})";
+                }
+                else braceGradientStroke = CssSanitizeColor(firstStop ?? "transparent");
+                parsedOutline = ParseOutline(outline!, themeColors);
+            }
             if (!string.IsNullOrEmpty(custGeomSvgStrokeD) && parsedOutline != null)
             {
                 var (bw, dt, bc, cap, _, join) = parsedOutline.Value;
                 var dashArr = DashTypeToSvgDasharray(dt, bw);
                 var dashAttr = !string.IsNullOrEmpty(dashArr) ? $" stroke-dasharray=\"{dashArr}\"" : "";
                 var linecap = CapToSvgLinecap(cap);
-                sb.Append($"<path d=\"{custGeomSvgStrokeD}\" fill=\"none\" stroke=\"{CssSanitizeColor(bc)}\" stroke-width=\"{bw:0.##}pt\" vector-effect=\"non-scaling-stroke\" stroke-linecap=\"{linecap}\" stroke-linejoin=\"{join}\"{dashAttr}/>");
+                sb.Append($"<path d=\"{custGeomSvgStrokeD}\" fill=\"none\" stroke=\"{braceGradientStroke ?? CssSanitizeColor(bc)}\" stroke-width=\"{bw:0.##}pt\" vector-effect=\"non-scaling-stroke\" stroke-linecap=\"{linecap}\" stroke-linejoin=\"{join}\"{dashAttr}/>");
             }
             sb.Append("</svg>");
         }
