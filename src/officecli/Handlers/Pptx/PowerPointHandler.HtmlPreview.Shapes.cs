@@ -170,7 +170,12 @@ public partial class PowerPointHandler
         // SVG-dashed paths. Without this the gradient line color resolves to null
         // in ParseOutline and degrades to solid #000000.
         var outlineGradFill = outline?.GetFirstChild<Drawing.GradientFill>();
-        var parsedOutline = outline != null ? ParseOutline(outline, themeColors) : null;
+        // A local width/dash override does not clear the style-matrix line color.
+        // Resolve the missing color from lnRef; explicit fills and noFill still win.
+        var inheritedLine = outline != null
+            ? ResolveStyleLineRefStroke(shape.ShapeStyle, part, themeColors) : null;
+        var parsedOutline = outline != null
+            ? ParseOutline(outline, themeColors, inheritedLine?.color, inheritedLine?.widthPt) : null;
         // R23-B: a gradient outline used to always emit `border:Npt solid transparent`
         // + `border-image:<gradient> 1`. But CSS `border-image` is IGNORED whenever
         // `border-radius` is also set (spec) — so a roundRect (or any preset whose
@@ -1808,8 +1813,9 @@ public partial class PowerPointHandler
         var outline = spPr?.GetFirstChild<Drawing.Outline>();
         var defaultLineColor = themeColors.TryGetValue("tx1", out var txc) ? $"#{txc}"
             : themeColors.TryGetValue("dk1", out var dkc) ? $"#{dkc}" : "#000000";
-        var lineColor = defaultLineColor;
-        var lineWidth = 1.0;
+        var inheritedLine = ResolveStyleLineRefStroke(style, part, themeColors);
+        var lineColor = inheritedLine?.color ?? defaultLineColor;
+        var lineWidth = inheritedLine?.widthPt ?? 1.0;
         var lineCap = "flat";
         var lineCmpd = "sng";
         // R15-2: a connector outline <a:ln>/<a:gradFill> can't be represented by a
