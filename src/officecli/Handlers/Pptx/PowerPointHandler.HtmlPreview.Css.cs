@@ -751,7 +751,9 @@ public partial class PowerPointHandler
     /// <summary>
     /// Parse outline into (widthPt, ooxmlDashType, color). Returns null if NoFill.
     /// </summary>
-    private static (double widthPt, string dashType, string color, string cap, string cmpd, string join)? ParseOutline(Drawing.Outline outline, Dictionary<string, string> themeColors)
+    private static (double widthPt, string dashType, string color, string cap, string cmpd, string join)? ParseOutline(
+        Drawing.Outline outline, Dictionary<string, string> themeColors, string? inheritedColor = null,
+        double? inheritedWidthPt = null)
     {
         if (outline.GetFirstChild<Drawing.NoFill>() != null) return null;
 
@@ -760,12 +762,14 @@ public partial class PowerPointHandler
         // to dk1 default + 0.5pt and paint a phantom border on every plain text box.
         if (outline.GetFirstChild<Drawing.SolidFill>() == null
             && outline.GetFirstChild<Drawing.GradientFill>() == null
-            && outline.Width?.HasValue != true)
+            && outline.Width?.HasValue != true && inheritedColor == null)
             return null;
 
         var color = ResolveFillColor(outline.GetFirstChild<Drawing.SolidFill>(), themeColors)
+            ?? inheritedColor
             ?? (themeColors.TryGetValue("dk1", out var dk1Hex) ? $"#{dk1Hex}" : "#000000");
-        var widthPt = outline.Width?.HasValue == true ? outline.Width.Value / EmuConverter.EmuPerPointF : 1.0;
+        var widthPt = outline.Width?.HasValue == true
+            ? outline.Width.Value / EmuConverter.EmuPerPointF : inheritedWidthPt ?? 1.0;
         if (widthPt < 0.5) widthPt = 0.5;
 
         var dash = outline.GetFirstChild<Drawing.PresetDash>();
